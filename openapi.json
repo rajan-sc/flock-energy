@@ -1,0 +1,703 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Urja Meter Ops API Service",
+    "description": "Clean, production-ready REST API service over the legacy Urja Meter Ops utility portal.",
+    "version": "1.0.0"
+  },
+  "components": {
+    "schemas": {}
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Service health check",
+        "tags": [
+          "System"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    },
+                    "timestamp": {
+                      "type": "string"
+                    },
+                    "portalBaseUrl": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "status",
+                    "timestamp",
+                    "portalBaseUrl"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/meters": {
+      "get": {
+        "summary": "List and search smart meters",
+        "tags": [
+          "Meters"
+        ],
+        "description": "Returns a paginated list of meters from the Urja Meter Ops system.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "description": "Filter by meter ID or serial number"
+          },
+          {
+            "schema": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "description": "Page number (1-indexed)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "description": "Unique meter identifier"
+                          },
+                          "serialNumber": {
+                            "type": "string",
+                            "description": "Physical meter serial number"
+                          },
+                          "make": {
+                            "type": "string",
+                            "description": "Manufacturer make"
+                          },
+                          "phaseType": {
+                            "type": "string",
+                            "description": "Single or three phase"
+                          },
+                          "status": {
+                            "type": "string",
+                            "description": "Installation status"
+                          },
+                          "dtCode": {
+                            "type": "string",
+                            "description": "Associated Distribution Transformer code"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "serialNumber",
+                          "make",
+                          "phaseType",
+                          "status",
+                          "dtCode"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "number"
+                        },
+                        "page": {
+                          "type": "number"
+                        },
+                        "pageSize": {
+                          "type": "number"
+                        },
+                        "totalPages": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "page",
+                        "pageSize",
+                        "totalPages"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "pagination"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "description": "Machine-readable error code"
+                        },
+                        "message": {
+                          "type": "string",
+                          "description": "Human-readable error description"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/meters/{id}": {
+      "get": {
+        "summary": "Get meter details and network position",
+        "tags": [
+          "Meters"
+        ],
+        "description": "Retrieves complete nameplate details, GPS coordinates, and 7-tier network hierarchy.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "description": "Unique meter ID (e.g. J100000)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Unique meter identifier"
+                    },
+                    "serialNumber": {
+                      "type": "string",
+                      "description": "Physical meter serial number"
+                    },
+                    "make": {
+                      "type": "string",
+                      "description": "Manufacturer make"
+                    },
+                    "phaseType": {
+                      "type": "string",
+                      "description": "Single or three phase"
+                    },
+                    "status": {
+                      "type": "string",
+                      "description": "Installation status"
+                    },
+                    "dtCode": {
+                      "type": "string",
+                      "description": "Associated Distribution Transformer code"
+                    },
+                    "installationType": {
+                      "nullable": true,
+                      "description": "Installation type specification",
+                      "type": "string"
+                    },
+                    "location": {
+                      "nullable": true,
+                      "description": "GPS coordinates",
+                      "type": "object",
+                      "properties": {
+                        "latitude": {
+                          "type": "number",
+                          "description": "Latitude in decimal degrees"
+                        },
+                        "longitude": {
+                          "type": "number",
+                          "description": "Longitude in decimal degrees"
+                        }
+                      },
+                      "required": [
+                        "latitude",
+                        "longitude"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "networkPosition": {
+                      "nullable": true,
+                      "description": "Upstream distribution network hierarchy",
+                      "type": "object",
+                      "properties": {
+                        "zone": {
+                          "nullable": true,
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "code"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "circle": {
+                          "nullable": true,
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "code"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "division": {
+                          "nullable": true,
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "code"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "subdivision": {
+                          "nullable": true,
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "code"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "substation": {
+                          "nullable": true,
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "code"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "feeder": {
+                          "nullable": true,
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "code"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "dt": {
+                          "nullable": true,
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "code": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "code"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "zone",
+                        "circle",
+                        "division",
+                        "subdivision",
+                        "substation",
+                        "feeder",
+                        "dt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "serialNumber",
+                    "make",
+                    "phaseType",
+                    "status",
+                    "dtCode",
+                    "installationType",
+                    "location",
+                    "networkPosition"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "description": "Machine-readable error code"
+                        },
+                        "message": {
+                          "type": "string",
+                          "description": "Human-readable error description"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "description": "Machine-readable error code"
+                        },
+                        "message": {
+                          "type": "string",
+                          "description": "Human-readable error description"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/meters/{id}/consumption": {
+      "get": {
+        "summary": "Get recent meter energy consumption",
+        "tags": [
+          "Meters"
+        ],
+        "description": "Returns 30-minute interval readings including active energy (kWh), apparent energy (kVAh), and R-phase voltage.",
+        "parameters": [
+          {
+            "schema": {
+              "default": 50,
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 350
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "description": "Max number of readings to return (default: 50)"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "description": "Optional ISO date filter: only readings after this timestamp"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "query",
+            "name": "until",
+            "required": false,
+            "description": "Optional ISO date filter: only readings before this timestamp"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "description": "Unique meter ID (e.g. J100000)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "meterId": {
+                      "type": "string"
+                    },
+                    "unit": {
+                      "type": "string",
+                      "enum": [
+                        "kWh"
+                      ]
+                    },
+                    "readingsCount": {
+                      "type": "number"
+                    },
+                    "readings": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "timestamp": {
+                            "type": "string",
+                            "description": "ISO-8601 UTC timestamp"
+                          },
+                          "activeEnergyKwh": {
+                            "type": "number",
+                            "description": "Cumulative active energy in kilowatt-hours (kWh)"
+                          },
+                          "apparentEnergyKvah": {
+                            "type": "number",
+                            "description": "Cumulative apparent energy in kilovolt-ampere-hours (kVAh)"
+                          },
+                          "voltageRPhaseVolts": {
+                            "nullable": true,
+                            "description": "R-Phase voltage in Volts (V)",
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "timestamp",
+                          "activeEnergyKwh",
+                          "apparentEnergyKvah",
+                          "voltageRPhaseVolts"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "meterId",
+                    "unit",
+                    "readingsCount",
+                    "readings"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "description": "Machine-readable error code"
+                        },
+                        "message": {
+                          "type": "string",
+                          "description": "Human-readable error description"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "description": "Machine-readable error code"
+                        },
+                        "message": {
+                          "type": "string",
+                          "description": "Human-readable error description"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Meters",
+      "description": "Smart meter discovery, details, and consumption"
+    },
+    {
+      "name": "System",
+      "description": "Service health and operational endpoints"
+    }
+  ]
+}
