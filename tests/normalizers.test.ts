@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   parseIstToUtcIso,
+  parseStrictNumber,
   normalizeMeterSummary,
   normalizeConsumptionReading,
   normalizeExportItemToDetail,
@@ -13,11 +14,29 @@ import {
   ConsumptionReadingSchema,
 } from '../src/types/api.types.js';
 
-describe('Normalizer Unit Tests (with real fixtures)', () => {
+describe('Normalizer Unit Tests (with real fixtures & strict validation)', () => {
   it('converts Indian local timestamp format to ISO-8601 UTC string', () => {
     // 23/06/2026 23:30 in IST (UTC+5:30) is 2026-06-23T18:00:00.000Z
     const iso = parseIstToUtcIso('23/06/2026 23:30');
     expect(iso).toBe('2026-06-23T18:00:00.000Z');
+  });
+
+  it('rejects impossible calendar dates and malformed timestamp inputs', () => {
+    expect(() => parseIstToUtcIso('bad')).toThrow(/Malformed IST timestamp/);
+    expect(() => parseIstToUtcIso('31/02/2026 12:00')).toThrow(/Invalid calendar day 31/);
+    expect(() => parseIstToUtcIso('29/02/2026 12:00')).toThrow(/Invalid calendar day 29/); // 2026 is not a leap year
+    // Leap year 2024 should succeed
+    expect(parseIstToUtcIso('29/02/2024 12:00')).toBe('2024-02-29T06:30:00.000Z');
+  });
+
+  it('strictly parses numbers without silent zero coercion or junk trailing text', () => {
+    expect(parseStrictNumber('0')).toBe(0);
+    expect(parseStrictNumber(0)).toBe(0);
+    expect(parseStrictNumber('12.34')).toBe(12.34);
+    expect(parseStrictNumber('bad')).toBeNull();
+    expect(parseStrictNumber('12junk')).toBeNull();
+    expect(parseStrictNumber('')).toBeNull();
+    expect(parseStrictNumber(null)).toBeNull();
   });
 
   it('normalizes a raw meter search item and conforms to MeterSummarySchema', () => {
@@ -54,6 +73,19 @@ describe('Normalizer Unit Tests (with real fixtures)', () => {
 
     const parsed = ConsumptionReadingSchema.safeParse(normalized);
     expect(parsed.success).toBe(true);
+  });
+
+  it('preserves null on malformed readings rather than coercing to zero', () => {
+    const malformed = {
+      timestamp: '23/06/2026 23:30',
+      kwh: 'bad',
+      kvah: '12junk',
+      voltR: '',
+    };
+    const normalized = normalizeConsumptionReading(malformed);
+    expect(normalized.activeEnergyKwh).toBeNull();
+    expect(normalized.apparentEnergyKvah).toBeNull();
+    expect(normalized.voltageRPhaseVolts).toBeNull();
   });
 
   it('normalizes raw export item with complete hierarchy and geo coordinates', () => {

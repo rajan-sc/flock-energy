@@ -106,4 +106,20 @@ describe('Fastify REST API Integration Tests (100% Offline with Fixtures)', () =
     expect(typeof reading.activeEnergyKwh).toBe('number');
     expect(typeof reading.apparentEnergyKvah).toBe('number');
   });
+
+  it('GET /v1/meters/:id/consumption rejects invalid or inverted time filters with 400', async () => {
+    const resGarbage = await app.inject({
+      method: 'GET',
+      url: '/v1/meters/J100000/consumption?since=garbage',
+    });
+    expect(resGarbage.statusCode).toBe(400);
+    expect(resGarbage.json().error.code).toBe('VALIDATION_ERROR');
+
+    const resInverted = await app.inject({
+      method: 'GET',
+      url: '/v1/meters/J100000/consumption?since=2026-07-01T00:00:00Z&until=2026-06-01T00:00:00Z',
+    });
+    expect(resInverted.statusCode).toBe(400);
+    expect(resInverted.json().error.code).toBe('VALIDATION_ERROR');
+  });
 });

@@ -103,8 +103,20 @@ export function createMeterRoutes(portalClient: PortalClient): FastifyPluginAsyn
           }),
           querystring: z.object({
             limit: z.coerce.number().int().positive().max(350).default(50).describe('Max number of readings to return (default: 50)'),
-            since: z.string().optional().describe('Optional ISO date filter: only readings after this timestamp'),
-            until: z.string().optional().describe('Optional ISO date filter: only readings before this timestamp'),
+            since: z.string().refine((val) => !Number.isNaN(Date.parse(val)) && val.length >= 10, {
+              message: 'since must be a valid ISO date string (e.g. 2026-06-01T00:00:00Z)',
+            }).optional().describe('Optional ISO date filter: only readings after this timestamp'),
+            until: z.string().refine((val) => !Number.isNaN(Date.parse(val)) && val.length >= 10, {
+              message: 'until must be a valid ISO date string (e.g. 2026-06-01T00:00:00Z)',
+            }).optional().describe('Optional ISO date filter: only readings before this timestamp'),
+          }).refine((data) => {
+            if (data.since && data.until) {
+              return Date.parse(data.since) <= Date.parse(data.until);
+            }
+            return true;
+          }, {
+            message: 'Invalid date range: "since" must be earlier than or equal to "until"',
+            path: ['since'],
           }),
           response: {
             200: MeterConsumptionResponseSchema,
@@ -144,7 +156,10 @@ export function createMeterRoutes(portalClient: PortalClient): FastifyPluginAsyn
           readings = readings.filter((r) => new Date(r.timestamp).getTime() <= untilDate);
         }
 
-        // Apply limit slicing (take latest readings)
+        // Explicitly sort readings chronologically ascending (oldest to newest)
+        readings.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+
+        // Apply limit slicing (take latest chronological readings)
         if (readings.length > limit) {
           readings = readings.slice(-limit);
         }

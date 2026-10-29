@@ -54,8 +54,8 @@ export const MeterDetailSchema = MeterSummarySchema.extend({
 
 export const ConsumptionReadingSchema = z.object({
   timestamp: z.string().describe('ISO-8601 UTC timestamp'),
-  activeEnergyKwh: z.number().describe('Cumulative active energy in kilowatt-hours (kWh)'),
-  apparentEnergyKvah: z.number().describe('Cumulative apparent energy in kilovolt-ampere-hours (kVAh)'),
+  activeEnergyKwh: z.number().nullable().describe('Cumulative active energy in kilowatt-hours (kWh)'),
+  apparentEnergyKvah: z.number().nullable().describe('Cumulative apparent energy in kilovolt-ampere-hours (kVAh)'),
   voltageRPhaseVolts: z.number().nullable().describe('R-Phase voltage in Volts (V)'),
 });
 
