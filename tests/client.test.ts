@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { PortalClient } from '../src/client/portal-client.js';
 
-describe('PortalClient Session Management & 401 Interceptor', () => {
+describe('PortalClient Session Management & Concurrency', () => {
   it('automatically logs in and replays request when receiving a 401 Unauthorized', async () => {
     const client = new PortalClient({
       baseUrl: 'https://urja-ops.flockenergy.tech',
@@ -9,7 +9,6 @@ describe('PortalClient Session Management & 401 Interceptor', () => {
       password: 'mock_password_123',
     });
 
-    // Seed client with an expired dummy cookie
     client.setSessionCookie('__Secure-better-auth.session_token=EXPIRED_OLD_TOKEN');
 
     let callCount = 0;
@@ -18,7 +17,6 @@ describe('PortalClient Session Management & 401 Interceptor', () => {
       return '__Secure-better-auth.session_token=FRESH_NEW_TOKEN';
     });
 
-    // Mock global fetch to simulate 401 on first call, 200 on second call
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       callCount++;
@@ -49,6 +47,89 @@ describe('PortalClient Session Management & 401 Interceptor', () => {
     }
   });
 
+  it('shares a single in-flight login promise during concurrent cold requests', async () => {
+    const client = new PortalClient({
+      baseUrl: 'https://urja-ops.flockenergy.tech',
+      username: 'mock_user@example.com',
+      password: 'mock_password_123',
+    });
+
+    let loginFetches = 0;
+    const signals: boolean[] = [];
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string, options?: RequestInit) => {
+      signals.push(Boolean(options?.signal));
+      if (url.includes('/login')) {
+        loginFetches++;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return new Response(JSON.stringify({ type: 'success' }), {
+          status: 200,
+          headers: {
+            'set-cookie': '__Secure-better-auth.session_token=CONCURRENT_TEST_TOKEN; Path=/; HttpOnly',
+          },
+        });
+      }
+      return new Response(JSON.stringify({ data: [], total: 0 }), { status: 200 });
+    });
+
+    try {
+      // 3 concurrent requests on a cold client
+      await Promise.all([client.searchMeters(), client.searchMeters(), client.searchMeters()]);
+
+      // Exactly 1 POST /login network request occurred despite 3 simultaneous requests!
+      expect(loginFetches).toBe(1);
+      // All fetch calls included an AbortSignal timeout
+      expect(signals.every(Boolean)).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('recovers from SvelteKit HTML login redirects by refreshing session and retrying', async () => {
+    const client = new PortalClient({
+      baseUrl: 'https://urja-ops.flockenergy.tech',
+      username: 'mock_user@example.com',
+      password: 'mock_password_123',
+    });
+    client.setSessionCookie('__Secure-better-auth.session_token=EXPIRED_REDIRECT_COOKIE');
+
+    let logins = 0;
+    client.login = async () => {
+      logins++;
+      client.setSessionCookie('__Secure-better-auth.session_token=FRESH_RECOVERED_TOKEN');
+      return '__Secure-better-auth.session_token=FRESH_RECOVERED_TOKEN';
+    };
+
+    let fetchAttempts = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn().mockImplementation(async () => {
+      fetchAttempts++;
+      if (fetchAttempts === 1) {
+        // First attempt returns HTML login page
+        return new Response('<!DOCTYPE html><html><body>Login</body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        });
+      }
+      // Second attempt returns valid JSON
+      return new Response(JSON.stringify({ data: [], total: 0 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+
+    try {
+      const res = await client.searchMeters();
+      expect(fetchAttempts).toBe(2);
+      expect(logins).toBe(1);
+      expect(Array.isArray(res.data)).toBe(true);
+      expect(client.getSessionCookie()).toBe('__Secure-better-auth.session_token=FRESH_RECOVERED_TOKEN');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('caches bulk export responses in memory and coalesces concurrent calls', async () => {
     const client = new PortalClient({
       baseUrl: 'https://urja-ops.flockenergy.tech',
@@ -71,7 +152,6 @@ describe('PortalClient Session Management & 401 Interceptor', () => {
     });
 
     try {
-      // 3 concurrent calls
       const [res1, res2, res3] = await Promise.all([
         client.getBulkExport(1),
         client.getBulkExport(1),
@@ -82,10 +162,8 @@ describe('PortalClient Session Management & 401 Interceptor', () => {
       expect(res2.data[0].meterId).toBe('J100000');
       expect(res3.data[0].meterId).toBe('J100000');
 
-      // 1 fetch for keys + 1 fetch for export = 2 total network calls across all 3 requests
       expect(networkFetches).toBe(2);
 
-      // Subsequent call should hit cache immediately with zero additional network fetches
       const cachedRes = await client.getBulkExport(1);
       expect(cachedRes.data[0].meterId).toBe('J100000');
       expect(networkFetches).toBe(2);
