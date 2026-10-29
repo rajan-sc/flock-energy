@@ -578,12 +578,14 @@
                             "description": "ISO-8601 UTC timestamp"
                           },
                           "activeEnergyKwh": {
-                            "type": "number",
-                            "description": "Cumulative active energy in kilowatt-hours (kWh)"
+                            "nullable": true,
+                            "description": "Cumulative active energy in kilowatt-hours (kWh)",
+                            "type": "number"
                           },
                           "apparentEnergyKvah": {
-                            "type": "number",
-                            "description": "Cumulative apparent energy in kilovolt-ampere-hours (kVAh)"
+                            "nullable": true,
+                            "description": "Cumulative apparent energy in kilovolt-ampere-hours (kVAh)",
+                            "type": "number"
                           },
                           "voltageRPhaseVolts": {
                             "nullable": true,

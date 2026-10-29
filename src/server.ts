@@ -74,8 +74,8 @@ export async function buildApp(client?: PortalClient, customConfig?: Config) {
       });
     }
 
-    // Portal upstream errors
-    if (error.message?.includes('Portal') || error.message?.includes('upstream') || error.message?.includes('fetch failed')) {
+    // Portal upstream errors (case-insensitive check across portal / gateway / fetch errors)
+    if (/portal|upstream|gateway|fetch failed/i.test(error.message)) {
       return reply.status(502).send({
         error: {
           code: 'UPSTREAM_GATEWAY_ERROR',
@@ -89,6 +89,16 @@ export async function buildApp(client?: PortalClient, customConfig?: Config) {
       error: {
         code: statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL_SERVER_ERROR',
         message: error.message || 'An unexpected error occurred',
+      },
+    });
+  });
+
+  // Standardize 404 handler to uniform error envelope
+  app.setNotFoundHandler((request, reply) => {
+    return reply.status(404).send({
+      error: {
+        code: 'NOT_FOUND',
+        message: `Route ${request.method} ${request.url} not found`,
       },
     });
   });
@@ -136,15 +146,6 @@ if (process.argv[1]?.endsWith('server.ts') || process.argv[1]?.endsWith('server.
       const liveConfig = loadConfig(process.env);
       const server = await buildApp(undefined, liveConfig);
       await server.ready();
-
-      // Export openapi.json to repository root
-      const openApiSpec = server.swagger();
-      fs.writeFileSync(
-        path.resolve(process.cwd(), 'openapi.json'),
-        JSON.stringify(openApiSpec, null, 2),
-        'utf8'
-      );
-      server.log.info('Generated openapi.json in repository root');
 
       await server.listen({ port: liveConfig.PORT, host: '0.0.0.0' });
       console.log(`🚀 Server listening at http://localhost:${liveConfig.PORT}`);

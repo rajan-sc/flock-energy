@@ -122,4 +122,13 @@ describe('Fastify REST API Integration Tests (100% Offline with Fixtures)', () =
     expect(resInverted.statusCode).toBe(400);
     expect(resInverted.json().error.code).toBe('VALIDATION_ERROR');
   });
+
+  it('unhandled routes return uniform 404 error envelope', async () => {
+    const res = await app.inject({ method: 'GET', url: '/does-not-exist' });
+    expect(res.statusCode).toBe(404);
+    const body = res.json();
+    expect(body).toHaveProperty('error');
+    expect(body.error.code).toBe('NOT_FOUND');
+    expect(typeof body.error.message).toBe('string');
+  });
 });
