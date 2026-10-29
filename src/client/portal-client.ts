@@ -65,6 +65,9 @@ export class PortalClient {
   private username: string;
   private password: string;
   private sessionCookie: string | null = null;
+  private bulkExportCache: { data: PortalExportResponse; expiresAt: number } | null = null;
+  private inFlightExportPromise: Promise<PortalExportResponse> | null = null;
+  private cacheTtlMs = 5 * 60 * 1000; // 5-minute inventory TTL
 
   constructor(options: { baseUrl: string; username: string; password: string }) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
@@ -172,35 +175,79 @@ export class PortalClient {
     return res.json() as Promise<PortalEnergyResponse>;
   }
 
-  public async getBulkExport(page = 1): Promise<PortalExportResponse> {
-    // 1. Fetch HMAC secret
-    const keyRes = await this.fetchWithAuth('/portal/keys');
-    if (!keyRes.ok) {
-      throw new Error(`Failed to fetch portal signing keys: HTTP ${keyRes.status}`);
-    }
-    const keyData = (await keyRes.json()) as { data: { signingSecret: string } };
-    const secret = keyData.data.signingSecret;
+  public clearBulkCache(): void {
+    this.bulkExportCache = null;
+  }
 
-    // 2. Generate HMAC signature
-    const method = 'GET';
-    const path = '/portal/export';
-    const query = `page=${page}`;
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const payload = [method, path, query, timestamp].join('\n');
-    const signature = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-
-    // 3. Authenticated signed fetch
-    const res = await this.fetchWithAuth(`${path}?${query}`, {
-      headers: {
-        'x-timestamp': timestamp,
-        'x-signature': signature,
-      },
-    });
-
-    if (!res.ok) {
-      throw new Error(`Failed to fetch bulk export: HTTP ${res.status}`);
+  public async getBulkExport(page = 1, forceRefresh = false): Promise<PortalExportResponse> {
+    // 1. Return cached inventory if fresh and page == 1
+    if (!forceRefresh && page === 1 && this.bulkExportCache && Date.now() < this.bulkExportCache.expiresAt) {
+      return this.bulkExportCache.data;
     }
 
-    return res.json() as Promise<PortalExportResponse>;
+    // 2. Coalesce concurrent in-flight requests for page 1
+    if (page === 1 && this.inFlightExportPromise) {
+      return this.inFlightExportPromise;
+    }
+
+    const fetchPromise = (async () => {
+      try {
+        // Fetch HMAC secret
+        const keyRes = await this.fetchWithAuth('/portal/keys');
+        if (!keyRes.ok) {
+          throw new Error(`Failed to fetch portal signing keys: HTTP ${keyRes.status}`);
+        }
+        const keyData = (await keyRes.json()) as { data: { signingSecret: string } };
+        const secret = keyData.data?.signingSecret;
+        if (!secret) {
+          throw new Error('Portal signing key response missing signingSecret');
+        }
+
+        // Generate HMAC signature
+        const method = 'GET';
+        const path = '/portal/export';
+        const query = `page=${page}`;
+        const timestamp = String(Math.floor(Date.now() / 1000));
+        const payload = [method, path, query, timestamp].join('\n');
+        const signature = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+
+        // Authenticated signed fetch
+        const res = await this.fetchWithAuth(`${path}?${query}`, {
+          headers: {
+            'x-timestamp': timestamp,
+            'x-signature': signature,
+          },
+        });
+
+        if (!res.ok) {
+          throw new Error(`Failed to fetch bulk export: HTTP ${res.status}`);
+        }
+
+        const exportData = (await res.json()) as PortalExportResponse;
+        if (!exportData || !Array.isArray(exportData.data)) {
+          throw new Error('Malformed bulk export response from portal');
+        }
+
+        // Cache page 1 snapshot
+        if (page === 1) {
+          this.bulkExportCache = {
+            data: exportData,
+            expiresAt: Date.now() + this.cacheTtlMs,
+          };
+        }
+
+        return exportData;
+      } finally {
+        if (page === 1) {
+          this.inFlightExportPromise = null;
+        }
+      }
+    })();
+
+    if (page === 1) {
+      this.inFlightExportPromise = fetchPromise;
+    }
+
+    return fetchPromise;
   }
 }
