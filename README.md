@@ -13,14 +13,15 @@ A clean, typed REST API service built with **Node.js**, **TypeScript**, and **Fa
 ```text
 .
 ├── src/
-│   ├── client/       # Legacy portal HTTP client (session management & 401 retry)
-│   ├── normalizers/  # Data transformation functions (IST to UTC, float parsing)
+│   ├── client/       # Legacy portal HTTP client (session management, caching, 401 retry)
+│   ├── normalizers/  # Data transformation functions (IST to UTC, strict number/date parsing)
 │   ├── routes/       # Fastify REST route handlers
 │   ├── types/        # Zod schemas & TypeScript definitions
-│   ├── config.ts     # Zod-validated environment config
+│   ├── config.ts     # Zod-validated environment config with dependency injection
 │   └── server.ts     # Fastify app, Swagger UI registration & error envelope
-├── tests/            # Vitest unit and integration tests (11 passing offline)
-├── fixtures/         # Saved offline JSON responses from legacy portal
+├── scripts/          # Standalone build & tooling scripts (generate-openapi.ts)
+├── tests/            # Vitest unit and integration tests (19 passing 100% offline)
+├── fixtures/         # Sanitized offline JSON responses from legacy portal sandbox
 ├── docs/             # Investigation notes and project assets
 ├── PROTOCOL.md       # Technical portal analysis
 ├── REFLECTION.md     # Answers to evaluation questions
@@ -50,7 +51,7 @@ npm run dev
 ```
 
 ### 3. Run Tests
-The test suite runs **100% offline** using real saved portal fixtures, so anyone can clone and verify without credentials or live portal access:
+The test suite runs **100% offline** with zero external network access and requires no `.env` file or portal credentials:
 ```bash
 npm test
 ```
@@ -75,7 +76,10 @@ curl -X GET http://localhost:3000/v1/meters/J100000
 # 5. Get recent 30-minute interval consumption readings (kWh, kVAh, Volts)
 curl -X GET "http://localhost:3000/v1/meters/J100000/consumption?limit=10"
 
-# 6. Interactive Swagger documentation
+# 6. Filter consumption with strict ISO dates
+curl -X GET "http://localhost:3000/v1/meters/J100000/consumption?since=2026-06-20T00:00:00Z&until=2026-06-23T23:59:59Z"
+
+# 7. Interactive Swagger documentation
 # Open http://localhost:3000/docs in your browser
 ```
 
@@ -87,7 +91,7 @@ curl -X GET "http://localhost:3000/v1/meters/J100000/consumption?limit=10"
 2. **SvelteKit CSRF Protection**: Discovered that SvelteKit validates the `Origin` header on form submissions. Omitting it caused `403 Forbidden: Cross-site POST form submissions are forbidden`. Adding `Origin: https://urja-ops.flockenergy.tech` resolved it.
 3. **Session Cookies vs Tokens**: The portal uses Better-Auth setting an `HttpOnly` cookie (`__Secure-better-auth.session_token`) with a 1-hour lifetime (`Max-Age=3600`).
 4. **JS Inspection over HTML Scraping**: Instead of fragile DOM scraping, reading the frontend JavaScript bundles (`5.C4dYcCRt.js`, `4.2Bgc2kUI.js`) revealed native JSON endpoints (`/portal/meters/search`, `/geo`, `/energy`) and a hidden HMAC-SHA256 bulk export endpoint.
-5. **Session Resilience**: Understanding why an on-demand 401 retry interceptor is more resilient than a fixed 59-minute timer against unexpected upstream server reboots.
+5. **Session Resilience & Mutex**: An on-demand 401 retry interceptor handles unexpected upstream server reboots, while an in-flight promise mutex ensures concurrent requests share a single re-login rather than causing a stampede.
 
 <details>
   <summary><b>notes</b></summary>
@@ -103,31 +107,30 @@ curl -X GET "http://localhost:3000/v1/meters/J100000/consumption?limit=10"
 ## Notes
 
 ### Assumptions
-* **Timezone**: The portal operates meters in Rajasthan, India (Jaipur Zone, Malviya Nagar). Energy timestamps arrive in local Indian format (`DD/MM/YYYY HH:mm`) without a timezone indicator. We assumed **Indian Standard Time (IST = UTC+05:30)** and converted all timestamps to ISO-8601 UTC.
-* **Cumulative Register Counters**: The `kwh` values continuously increase over time; they represent cumulative meter register readings (like an odometer on a car), rather than individual 30-minute interval usage.
-* **Read-Only**: The service strictly reads data and never mutates anything on the portal.
-* **Session Lifecycle**: The legacy portal issues an auth cookie with `Max-Age=3600` (1 hour). We assumed sessions can expire or be invalidated at any time, requiring reactive re-authentication.
+* **Timezone**: The portal operates meters in Rajasthan, India (Jaipur Zone, Malviya Nagar). Energy timestamps arrive in local Indian format (`DD/MM/YYYY HH:mm`) without a timezone indicator. We strictly validate Gregorian calendar dates and convert all timestamps from **Indian Standard Time (IST = UTC+05:30)** to ISO-8601 UTC.
+* **Cumulative Register Counters**: The `kwh` values continuously increase over time; they represent cumulative meter register readings (odometer-style), sampled approximately every 30 minutes, rather than interval delta usage.
+* **Data Domain Integrity**: A reading of `0 kWh` is a valid physical measurement indicating an idle or inactive meter. Corrupt or unparseable upstream strings are preserved as `null` or rejected rather than coerced into `0`.
+* **Read-Only Invariant**: The meter and telemetry endpoints strictly perform read-only queries. Authentication performs session generation via POST without mutating metering assets.
+* **Session Lifecycle**: The legacy portal issues an auth cookie with `Max-Age=3600` (1 hour). We assumed sessions can expire or be invalidated at any time, requiring reactive re-authentication and recovery from SvelteKit HTML login redirects.
 
 ### Design Decisions & Trade-offs
 
 #### 1. Fastify + Zod over Express
-* In my previous projects (like my chat app), I typically built APIs using Express.
-* Here, I chose **Fastify** because it pairs natively with Zod via `fastify-type-provider-zod` and `@fastify/swagger`.
-* **Benefit**: It validates query parameters and response payloads at runtime and automatically generates the OpenAPI 3.0 specification (`/openapi.json` and `/docs`) directly from code, eliminating manual documentation drift.
+* Chosen for native type inference and schema validation via `fastify-type-provider-zod` and `@fastify/swagger`.
+* **Benefit**: Validates query parameters and response payloads at runtime and automatically generates the OpenAPI 3.0 specification (`/openapi.json` and `/docs`) directly from code, eliminating documentation drift.
 
-#### 2. On-Demand 401 Interceptor over `node-cron`
-* **Initial Idea**: Use a `node-cron` job running every 59 minutes to refresh the session token before the 60-minute cookie expiry (a pattern I've used for database maintenance).
-* **Why Rejected**: If the server restarts at minute 10, or if the legacy portal restarts and flushes sessions at minute 15, the cron wouldn't run for another 44 minutes, causing all user requests to fail during that blackout window.
-* **Solution**: An **on-demand reactive interceptor**. If any request receives a 401, it catches it, executes a silent login to acquire a fresh session cookie, and replays the original request once. It handles restarts naturally and wastes zero requests during idle hours.
+#### 2. In-Memory TTL Caching & Request Coalescing
+* Querying `/v1/meters/:id` leverages the HMAC bulk export endpoint. To prevent upstream amplification from repeated requests or nonexistent IDs, the client implements a 5-minute in-memory TTL cache and an in-flight promise mutex. Concurrent requests share a single upstream export download.
 
-#### 3. No Database
-* The legacy portal is the single source of truth. Adding a local database (SQLite/Postgres) would add synchronization complexity and state management overhead for a read-only proxy service.
+#### 3. Reactive Session Interceptor with Mutex
+* Instead of a rigid timer, the client catches 401s or HTML login redirects, triggers a synchronized re-login using an in-flight promise (preventing race conditions across concurrent callers), and replays the original request.
+* Replayed HMAC export requests re-fetch signing keys and generate fresh timestamps and signatures.
 
-### What Was Left Out & Why
-* **User Authentication**: Omitted API keys/JWT auth for this wrapper to keep the focus strictly on proxying and normalizing the legacy portal data.
-* **External Caching Systems**: Avoided external Redis dependencies to ensure the service remains zero-dependency and runnable out of the box with `npm install && npm run dev`.
+#### 4. Decoupled OpenAPI Generation
+* Build artifacts are separated from server boot. `openapi.json` is generated via `npm run generate:openapi` rather than writing to disk inside `app.listen()`, ensuring the server runs smoothly in read-only container filesystems (e.g. AWS Lambda / Docker).
 
-### Improvements With More Time
-* **In-Memory TTL Cache**: Add a 5-minute memory cache with stale-while-revalidate for the 403-meter list to reduce upstream portal traffic.
-* **Interval Delta Calculation**: Calculate energy consumed between consecutive 30-minute intervals (`kwh_current - kwh_previous`) so downstream frontends don't have to compute step differences manually.
-* **Fallback for Detail Endpoint**: The detail endpoint currently uses the fast bulk export path. If that endpoint ever failed, add an automated fallback to fetch `/geo` and `__data.json` directly.
+#### 5. Deployment Trust Boundary
+* This service is designed as an internal evaluation microservice. For public production exposure, edge rate limiting and caller authentication should be enforced at the gateway boundary.
+
+### Fixture Provenance
+The fixtures in `fixtures/` are sanitized JSON payloads captured from the evaluation sandbox environment, allowing complete, deterministic offline testing without exposing live operational credentials.
