@@ -9,21 +9,22 @@ import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUi from '@fastify/swagger-ui';
 import fs from 'node:fs';
 import path from 'node:path';
-import { config } from './config.js';
+import { config as defaultConfig, loadConfig, type Config } from './config.js';
 import { PortalClient } from './client/portal-client.js';
 import { createMeterRoutes } from './routes/meters.routes.js';
 import { ErrorResponseSchema } from './types/api.types.js';
 import { z } from 'zod';
 
-export async function buildApp(client?: PortalClient) {
+export async function buildApp(client?: PortalClient, customConfig?: Config) {
+  const appConfig = customConfig || loadConfig(process.env);
   const portalClient = client || new PortalClient({
-    baseUrl: config.PORTAL_BASE_URL,
-    username: config.PORTAL_USERNAME,
-    password: config.PORTAL_PASSWORD,
+    baseUrl: appConfig.PORTAL_BASE_URL,
+    username: appConfig.PORTAL_USERNAME,
+    password: appConfig.PORTAL_PASSWORD,
   });
 
   const app = Fastify({
-    logger: config.NODE_ENV !== 'test',
+    logger: appConfig.NODE_ENV !== 'test',
   }).withTypeProvider<ZodTypeProvider>();
 
   // Schema validator & serializer using Zod
@@ -40,7 +41,7 @@ export async function buildApp(client?: PortalClient) {
       },
       servers: [
         {
-          url: `http://localhost:${config.PORT}`,
+          url: `http://localhost:${appConfig.PORT}`,
           description: 'Local development server',
         },
       ],
@@ -112,7 +113,7 @@ export async function buildApp(client?: PortalClient) {
       return {
         status: 'ok' as const,
         timestamp: new Date().toISOString(),
-        portalBaseUrl: config.PORTAL_BASE_URL,
+        portalBaseUrl: appConfig.PORTAL_BASE_URL,
       };
     }
   );
@@ -131,8 +132,9 @@ export async function buildApp(client?: PortalClient) {
 // Start server when run directly
 if (process.argv[1]?.endsWith('server.ts') || process.argv[1]?.endsWith('server.js')) {
   (async () => {
-    const server = await buildApp();
     try {
+      const liveConfig = loadConfig(process.env);
+      const server = await buildApp(undefined, liveConfig);
       await server.ready();
 
       // Export openapi.json to repository root
@@ -144,11 +146,11 @@ if (process.argv[1]?.endsWith('server.ts') || process.argv[1]?.endsWith('server.
       );
       server.log.info('Generated openapi.json in repository root');
 
-      await server.listen({ port: config.PORT, host: '0.0.0.0' });
-      console.log(`🚀 Server listening at http://localhost:${config.PORT}`);
-      console.log(`📖 Interactive API docs at http://localhost:${config.PORT}/docs`);
+      await server.listen({ port: liveConfig.PORT, host: '0.0.0.0' });
+      console.log(`🚀 Server listening at http://localhost:${liveConfig.PORT}`);
+      console.log(`📖 Interactive API docs at http://localhost:${liveConfig.PORT}/docs`);
     } catch (err) {
-      server.log.error(err);
+      console.error(err);
       process.exit(1);
     }
   })();

@@ -1,12 +1,42 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { buildApp } from '../src/server.js';
 import type { FastifyInstance } from 'fastify';
+import type { PortalClient } from '../src/client/portal-client.js';
 
-describe('Fastify REST API Integration Tests', () => {
+describe('Fastify REST API Integration Tests (100% Offline with Fixtures)', () => {
   let app: FastifyInstance;
 
   beforeAll(async () => {
-    app = await buildApp();
+    const fixturePath = (name: string) => path.resolve(process.cwd(), 'fixtures', name);
+    const searchData = JSON.parse(fs.readFileSync(fixturePath('portal-meters-search.json'), 'utf8'));
+    const bulkData = JSON.parse(fs.readFileSync(fixturePath('portal-export.json'), 'utf8'));
+    const energyData = JSON.parse(fs.readFileSync(fixturePath('portal-meter-energy.json'), 'utf8'));
+
+    // Purely offline mock client using real saved portal fixtures
+    const mockClient = {
+      searchMeters: async (q = '', page = 1) => searchData,
+      getBulkExport: async (page = 1) => bulkData,
+      getMeterEnergy: async (id: string) => energyData,
+      getMeterGeo: async (id: string) => ({
+        data: {
+          meterId: id,
+          latitude: '26.9124',
+          longitude: '75.7873',
+          address: 'Station Road, Jaipur',
+        },
+      }),
+    } as unknown as PortalClient;
+
+    app = await buildApp(mockClient, {
+      PORT: 3000,
+      PORTAL_BASE_URL: 'https://urja-ops.flockenergy.tech',
+      PORTAL_USERNAME: 'test-offline-operator',
+      PORTAL_PASSWORD: 'test-offline-password',
+      NODE_ENV: 'test',
+    });
+
     await app.ready();
   });
 
