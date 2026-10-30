@@ -1,8 +1,40 @@
 # Urja Meter Ops API Service
 
-A clean, typed REST API service built with **Node.js**, **TypeScript**, and **Fastify** that sits in front of the legacy Urja Meter Ops web portal (`https://urja-ops.flockenergy.tech`). It exposes structured smart-meter information, geographic locations, network hierarchy, and 30-minute interval energy consumption without requiring downstream clients to interact with the legacy portal.
+> A resilient, typed REST API gateway and Anti-Corruption Layer built with **Node.js**, **TypeScript**, and **Fastify** over the legacy Urja Meter Ops utility portal (`https://urja-ops.flockenergy.tech`).
 
-## Documentation Links
+---
+
+## 📖 About the Project
+
+The **Urja Meter Ops API Service** bridges the gap between legacy electricity utility operations and modern smart-grid data consumers.
+
+In regional electricity distribution systems (such as the Jaipur Zone in Rajasthan, India), critical operational data—including smart meter inventory, 7-tier distribution network hierarchies, geographic GPS coordinates, and 30-minute interval telemetry—often resides behind legacy, closed web portals that lack programmatic APIs, documentation, or machine-readable contracts.
+
+This project reverse-engineers the undocumented transport mechanisms, session lifecycles, and internal data paths of the **Urja Meter Ops** portal, wrapping them in a high-performance, contract-tested microservice. It provides utility engineers, grid monitoring dashboards, and downstream analytics pipelines with clean, predictable REST endpoints without needing direct access or fragile browser-based automation against the legacy portal.
+
+---
+
+## 🔍 Description & Problem Statement
+
+### The Problem
+Integrating with the legacy Urja Meter Ops web portal presented several architectural and operational challenges:
+1. **No Machine-Readable API**: The portal is a monolithic SvelteKit SPA intended strictly for human browser sessions.
+2. **Strict Auth & CSRF Barriers**: Authentication relies on `__Secure-` session cookies governed by Better-Auth and strict SvelteKit CSRF verification that rejects standard headless HTTP requests with `403 Forbidden`.
+3. **Session Fragility**: Auth cookies expire within 1 hour (`Max-Age=3600`), and unexpected portal reboots cause session dropouts and silent HTML login redirects.
+4. **Crawling Overhead**: Fetching meter details across 403 endpoints sequentially would require over 400 separate HTTP roundtrips, taking 30+ seconds and risking socket starvation or IP rate-limiting.
+5. **Data Corruption Risks**: Telemetry timestamps arrive in Indian Standard Time (`DD/MM/YYYY HH:mm`) without timezone offsets, numbers arrive as string types, and cumulative energy registers can easily be conflated with interval usage.
+
+### The Solution: An Anti-Corruption Gateway
+This microservice acts as an **Anti-Corruption Layer (ACL)** and resilient proxy:
+* **Zero Fragile DOM Scraping**: Discovered and utilizes native internal JSON routes and an authenticated **HMAC-SHA256 bulk export protocol** (`/portal/export`) that ingests all 403 meters, complete with GPS coordinates and 7-tier network hierarchies, in a single ~400ms request.
+* **Self-Healing Session Interceptor**: Automatically detects `401 Unauthorized` responses and HTML login redirects. It transparently re-authenticates and replays failed requests with zero downstream disruption.
+* **Concurrency-Safe Mutex**: Employs in-flight promise deduplication to prevent login stampedes and redundant upstream export fetches when under concurrent load.
+* **Strict Data Normalization**: Parses unlabelled IST timestamps into UTC ISO-8601 strings, enforces strict numeric validation (preserving valid `0 kWh` readings while mapping corrupt strings to `null`), and guarantees schema integrity using Zod.
+* **Zero-Drift OpenAPI 3.0 Documentation**: Generates OpenAPI schemas directly from compiled application code via `fastify-type-provider-zod` and `@fastify/swagger`, served live via an interactive Swagger UI at `/docs`.
+
+---
+
+## 📚 Documentation Links
 * [PROTOCOL.md](./PROTOCOL.md) — Reverse-engineering write-up of the portal (auth, endpoints, HMAC export, quirks).
 * [REFLECTION.md](./REFLECTION.md) — 5 retrospective answers on assumptions, obstacles, and trade-offs.
 * **OpenAPI 3.0 Specification**: `./openapi.json` (interactive Swagger UI served live at `http://localhost:3000/docs`).

@@ -1,7 +1,7 @@
 {
   "name": "flock-energy",
   "version": "1.0.0",
-  "description": "",
+  "description": "A resilient, typed REST API gateway and anti-corruption layer built with Node.js, Fastify, and TypeScript that wraps the legacy Urja Meter Ops utility portal.",
   "main": "dist/server.js",
   "type": "module",
   "scripts": {

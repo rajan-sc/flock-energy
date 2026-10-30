@@ -36,7 +36,8 @@ export async function buildApp(client?: PortalClient, customConfig?: Config) {
     openapi: {
       info: {
         title: 'Urja Meter Ops API Service',
-        description: 'Clean, production-ready REST API service over the legacy Urja Meter Ops utility portal.',
+        description:
+          'A resilient, typed REST API gateway and Anti-Corruption Layer over the legacy Urja Meter Ops utility portal. Exposes structured smart-meter inventory, 7-tier distribution network hierarchy, GPS coordinates, and 30-minute interval telemetry normalized to UTC ISO-8601.',
         version: '1.0.0',
       },
       servers: [
